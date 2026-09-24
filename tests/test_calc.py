@@ -10,7 +10,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from calc import format_result, parse_operand, main
+from calc import calculate, format_result, parse_operand, main
 
 
 class FormatResultTests(unittest.TestCase):
@@ -29,6 +29,25 @@ class FormatResultTests(unittest.TestCase):
     def test_mixed_integer_float(self):
         # int passed to float still formats whole
         self.assertEqual(format_result(7.0), "7")
+
+
+class CalculateTests(unittest.TestCase):
+    """Verify the shared ``calculate`` helper used by CLI and GUI."""
+
+    def test_add(self):
+        self.assertEqual(calculate(2.0, 3.0, False), 5.0)
+
+    def test_add_integer_inputs(self):
+        self.assertEqual(calculate(2, 3, False), 5)
+
+    def test_subtract(self):
+        self.assertEqual(calculate(5.0, 3.0, True), 2.0)
+
+    def test_negative_difference(self):
+        self.assertEqual(calculate(5.0, 7.0, True), -2.0)
+
+    def test_fractional_difference(self):
+        self.assertEqual(calculate(2.25, 3.0, True), -0.75)
 
 
 class ParseOperandTests(unittest.TestCase):
@@ -180,3 +199,54 @@ class CLITests(unittest.TestCase):
         output = proc.stdout + proc.stderr
         self.assertIn("--subtract", output)
         self.assertIn("-s", output)
+
+    def test_cli_help_mentions_gui(self):
+        """``python calc.py --help`` shows the ``--gui`` flag."""
+        proc = self._run_calc("--help")
+        self.assertEqual(proc.returncode, 0)
+        output = proc.stdout + proc.stderr
+        self.assertIn("--gui", output)
+
+
+class GuiModeTests(unittest.TestCase):
+    """Simulate tkinter absence for the ``--gui`` dispatch path."""
+
+    def test_gui_flag_import_error_exits_nonzero(self):
+        """Missing tkinter → ``main()`` returns non-zero with a stderr message."""
+        import builtins
+        from io import StringIO
+
+        real_import = builtins.__import__
+
+        def no_tk(name, *args, **kwargs):
+            if name.split(".")[0] == "tkinter":
+                raise ImportError(f"No module named {name!r}")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=no_tk):
+            with patch("sys.argv", ["calc.py", "--gui"]):
+                with patch("sys.stderr", new=StringIO()) as err:
+                    exit_code = main()
+                    self.assertEqual(exit_code, 1)
+                    self.assertIn("--gui", err.getvalue())
+                    self.assertIn("command-line", err.getvalue())
+
+    def test_cli_path_never_imports_tkinter(self):
+        """The non-``--gui`` CLI path must not import ``tkinter``."""
+        import builtins
+        from io import StringIO
+
+        real_import = builtins.__import__
+        requested = []
+
+        def recording_import(name, *args, **kwargs):
+            requested.append(name)
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=recording_import):
+            with patch("sys.argv", ["calc.py", "2", "3"]):
+                with patch("sys.stdout", new=StringIO()) as out:
+                    exit_code = main()
+                    self.assertEqual(exit_code, 0)
+                    self.assertEqual(out.getvalue().strip(), "5")
+        self.assertNotIn("tkinter", requested)
