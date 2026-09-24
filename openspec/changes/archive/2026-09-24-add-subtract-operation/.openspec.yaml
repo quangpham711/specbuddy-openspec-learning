@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-09-24
+goal: Add a subtract operation to the mini calculator CLI so users can subtract
+  one number from another.
